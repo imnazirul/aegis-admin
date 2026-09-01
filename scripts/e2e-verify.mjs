@@ -6,6 +6,11 @@
  *
  * Sends real email to the SMTP account configured in .env.local, so it uses that address as the
  * recipient rather than someone else's.
+ *
+ * The codes are minted here rather than read out of the inbox — a six-digit code is stored only
+ * as a hash, so the only way to exercise the endpoint is to plant one the same way the server
+ * would. What is being tested is the checking, the attempt cap and the expiry, all of which are
+ * server side.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -61,7 +66,7 @@ await sql`insert into nodes (id, name, endpoint, public_key, token_hash)
           values (${nodeId}, 'e2e', '127.0.0.1:51820', ${"ff".repeat(32)},
                   ${createHash("sha256").update(nodeToken).digest("hex")})`;
 
-console.log("\nregistration sends a link\n");
+console.log("\nregistration sends a code\n");
 const registered = await call("POST", "/api/auth/register", {
   body: { email, password, timezone: "Asia/Dhaka" },
 });
@@ -71,11 +76,15 @@ const token = registered.body?.token;
 
 const rows = await sql`select id from users where email = ${email}`;
 const userId = rows[0]?.id;
-const pending = await sql`select token_hash, email, expires_at, used_at
+const pending = await sql`select token_hash, email, expires_at, used_at, attempts
                           from email_verifications where user_id = ${userId}`;
-check("a verification was issued", pending.length === 1, pending.length);
+check("a code was issued", pending.length === 1, pending.length);
 check("stored only as a hash", /^[0-9a-f]{64}$/.test(pending[0]?.token_hash ?? ""), pending[0]?.token_hash);
 check("and not yet used", pending[0]?.used_at === null, pending[0]?.used_at);
+check("with no attempts spent", pending[0]?.attempts === 0, pending[0]?.attempts);
+// Short-lived, because six digits is a million guesses rather than 2^256.
+const ttl = (new Date(pending[0].expires_at).getTime() - Date.now()) / 60000;
+check("good for about fifteen minutes, not a day", ttl > 10 && ttl < 20, ttl);
 
 console.log("\nan unverified account cannot carry traffic\n");
 await call("POST", "/api/auth/devices", { token, body: { publicKey: deviceKey, name: "e2e" } });
@@ -88,26 +97,60 @@ check("the node refuses it", refused.allowed === false, refused);
 check("and says why", refused.reason === "email_unverified", refused);
 check("in words the user can act on", /Confirm your email/i.test(refused.message ?? ""), refused.message);
 
-console.log("\nthe link\n");
-const bad = await fetch(`${BASE}/verify?token=not-a-real-token`).then((r) => r.text());
-check("a bogus token is refused", /not valid/i.test(bad), "page did not say it was invalid");
+console.log("\nthe code\n");
+const anon = await call("POST", "/api/auth/verify", { body: { code: "123456" } });
+check("submitting a code without a session is refused", anon.status === 401, anon);
 
-// Exercise the real path by minting a token the same way the server does, so the page under
-// test is the one users open.
-const raw = randomBytes(32).toString("base64url");
-await sql`update email_verifications set used_at = now() where user_id = ${userId}`;
-await sql`insert into email_verifications (user_id, email, token_hash, expires_at)
-          values (${userId}, ${email}, ${createHash("sha256").update(raw).digest("hex")},
-                  now() + interval '24 hours')`;
+// Mint a code the way the server does, so the endpoint under test is the one the app calls.
+const hashOf = (v) => createHash("sha256").update(v).digest("hex");
+async function issue(code, { minutes = 15 } = {}) {
+  await sql`update email_verifications set used_at = now() where user_id = ${userId}`;
+  await sql`insert into email_verifications (user_id, email, token_hash, expires_at)
+            values (${userId}, ${email}, ${hashOf(code)},
+                    now() + make_interval(mins => ${minutes}))`;
+}
 
-const good = await fetch(`${BASE}/verify?token=${encodeURIComponent(raw)}`).then((r) => r.text());
-check("a valid token confirms the address", /Email confirmed/i.test(good), "page did not confirm");
+await issue("314159");
+
+const wrong = await call("POST", "/api/auth/verify", { token, body: { code: "000000" } });
+check("a wrong code is refused", wrong.status >= 400, wrong);
+check("and counts down the attempts left", /4 attempts left/.test(wrong.body?.message ?? ""), wrong.body);
+const spent = await sql`select attempts from email_verifications
+                        where user_id = ${userId} and used_at is null`;
+check("the attempt is recorded in the database, not in memory", spent[0]?.attempts === 1, spent[0]);
+
+const stillOut = await sql`select email_verified_at from users where id = ${userId}`;
+check("a wrong code verifies nothing", stillOut[0]?.email_verified_at === null, stillOut[0]);
+
+console.log("\nguessing is capped\n");
+await issue("271828");
+for (let i = 0; i < 4; i += 1) {
+  await call("POST", "/api/auth/verify", { token, body: { code: "111111" } });
+}
+const fifth = await call("POST", "/api/auth/verify", { token, body: { code: "111111" } });
+check("the fifth wrong guess burns the code", /no longer valid/i.test(fifth.body?.message ?? ""), fifth.body);
+const burned = await call("POST", "/api/auth/verify", { token, body: { code: "271828" } });
+check("and the right code no longer works after that", burned.status >= 400, burned.body);
+
+console.log("\nexpiry\n");
+await issue("161803", { minutes: -1 });
+const stale = await call("POST", "/api/auth/verify", { token, body: { code: "161803" } });
+check("an expired code is refused as expired", /expired/i.test(stale.body?.message ?? ""), stale.body);
+
+console.log("\nthe right code\n");
+await issue("141592");
+const spaced = await call("POST", "/api/auth/verify", { token, body: { code: "141 592" } });
+check("a code pasted with a space is accepted", spaced.status === 200, spaced.body);
+check("and reports it as newly verified", spaced.body?.already === false, spaced.body);
 
 const after = await sql`select email_verified_at from users where id = ${userId}`;
 check("the account is marked verified", after[0]?.email_verified_at !== null, after[0]);
+const closed = await sql`select used_at from email_verifications
+                         where user_id = ${userId} and token_hash = ${hashOf("141592")}`;
+check("the code is spent", closed[0]?.used_at !== null, closed[0]);
 
-const again = await fetch(`${BASE}/verify?token=${encodeURIComponent(raw)}`).then((r) => r.text());
-check("clicking twice says already confirmed, not an error", /Already confirmed/i.test(again), "second click errored");
+const twice = await call("POST", "/api/auth/verify", { token, body: { code: "141592" } });
+check("submitting twice says already confirmed, not an error", twice.body?.already === true, twice.body);
 
 console.log("\nand now it may connect\n");
 const allowed = await fetch(`${BASE}/api/node/authorize`, {
