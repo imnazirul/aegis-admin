@@ -144,29 +144,38 @@ export const userSessions = pgTable(
 /**
  * A pending email verification.
  *
- * A separate table rather than a column on `users`, so a link can be reissued without
- * invalidating the account, and so an expired attempt leaves a row worth looking at rather than
- * silently vanishing. Only the hash is stored — the token in the link is the secret, and a
- * database dump must not hand anyone the ability to verify other people's addresses.
+ * A six-digit code, not a link. That is a deliberate trade: it is far easier to type from a
+ * phone into a desktop app than a URL is, and it keeps the whole flow inside the client — but
+ * six digits is a million possibilities, not 2^256, so it needs protections a link does not:
+ *
+ * * **A short life.** Fifteen minutes, against a link's twenty-four hours.
+ * * **A hard attempt cap.** Five wrong guesses burn the code. Without that, a million tries is
+ *   an afternoon's work and the expiry protects nothing.
+ *
+ * Stored hashed, which matters less than it does for a high-entropy token — six digits fall to
+ * a dictionary instantly — but there is no reason to keep it in the clear, and it means a
+ * database dump alone does not verify anyone's address.
  */
-export const emailVerifications = pgTable(
+export const emailCodes = pgTable(
   "email_verifications",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    tokenHash: text("token_hash").notNull(),
-    /** The address it was sent to, so changing an email invalidates a link in flight. */
+    /** Named for what it holds; the column keeps its original name so the migration is additive. */
+    codeHash: text("token_hash").notNull(),
+    /** The address it was sent to, so changing an email invalidates a code in flight. */
     email: text("email").notNull(),
+    /** Wrong guesses so far. At the cap the code is burned. */
+    attempts: integer("attempts").notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: stamp("created_at"),
   },
-  (t) => [
-    uniqueIndex("email_verifications_token_hash_key").on(t.tokenHash),
-    index("email_verifications_user_id_idx").on(t.userId),
-  ],
+  // Not unique: two people can hold the same six digits at the same time without it meaning
+  // anything, because a code is only ever checked against its own account's row.
+  (t) => [index("email_verifications_user_id_idx").on(t.userId)],
 );
 
 export const admins = pgTable(

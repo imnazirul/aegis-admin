@@ -67,14 +67,14 @@ export async function POST(request: Request) {
   if (!created) return fail("server_error", "could not create the account");
 
   try {
-    await sendVerification(created.id, created.email, request);
+    await sendVerification(created.id, created.email);
   } catch (e) {
     // The account exists but the email did not go. Removing it would be worse — the address
     // would then be free for someone else to claim — so it stays, unverified and unable to
     // connect, and the answer says exactly that so the client can offer to resend.
     return fail(
       "server_error",
-      `Your account was created, but the confirmation email could not be sent: ${
+      `Your account was created, but the confirmation code could not be sent: ${
         e instanceof Error ? e.message : "unknown error"
       }. Sign in and ask for a new one.`,
     );

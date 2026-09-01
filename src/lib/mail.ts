@@ -6,8 +6,7 @@
  *
  * # Configuration
  *
- * `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, and optionally `APP_URL` for
- * the links in the messages.
+ * `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM`.
  *
  * If SMTP is not configured, registration **fails** rather than quietly creating accounts
  * nobody can ever verify. Silently accepting a sign-up that can never complete is the worse
@@ -56,24 +55,6 @@ function transport(config: MailConfig): Transporter {
   return cached;
 }
 
-/**
- * Where this deployment lives, for links in emails.
- *
- * Prefers an explicit `APP_URL`; falls back to the host the request arrived on, which is right
- * on Vercel and wrong behind a proxy that does not set the header — hence the preference.
- */
-export function appUrl(request?: Request): string {
-  const explicit = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-  if (request) {
-    const url = new URL(request.url);
-    const host = request.headers.get("x-forwarded-host") ?? url.host;
-    const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
-    return `${proto}://${host}`;
-  }
-  return "http://localhost:3000";
-}
-
 export type Mail = { to: string; subject: string; text: string; html: string };
 
 /**
@@ -103,48 +84,42 @@ export async function send(mail: Mail): Promise<void> {
  *
  * Plain text as well as HTML, always. A text part is what makes it render in clients that do
  * not do HTML, and its absence is one of the things spam filters weigh.
+ *
+ * The code appears in the subject line as well as the body, so it can be read from a
+ * notification without opening anything.
  */
-export function verificationMail(to: string, link: string, hours: number): Mail {
+export function verificationMail(to: string, code: string, minutes: number): Mail {
+  const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
+
   const text = [
-    "Confirm your email address",
+    `Your Aegis confirmation code is ${code}`,
     "",
-    "Open this link to finish setting up your Aegis VPN account:",
-    link,
-    "",
-    `The link is valid for ${hours} hours.`,
+    `Enter it in the Aegis app. It expires in ${minutes} minutes.`,
     "",
     "If you did not create an account, you can ignore this message — nothing will happen.",
   ].join("\n");
 
   const html = `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#f6f7f9;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
-  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e6e8ec;border-radius:12px;padding:28px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e6e8ec;border-radius:12px;padding:28px;text-align:center">
     <h1 style="margin:0 0 8px;font-size:18px">Confirm your email address</h1>
     <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#444">
-      Open the link below to finish setting up your Aegis VPN account. You will not be able to
-      connect until you do.
+      Enter this code in the Aegis app.
     </p>
-    <p style="margin:0 0 20px">
-      <a href="${escapeHtml(link)}"
-         style="display:inline-block;background:#2f6fed;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px">
-        Confirm email
-      </a>
-    </p>
-    <p style="margin:0 0 8px;font-size:12px;color:#666">
-      Or paste this into your browser:<br>
-      <span style="word-break:break-all">${escapeHtml(link)}</span>
-    </p>
-    <p style="margin:16px 0 0;font-size:12px;color:#666">
-      The link is valid for ${hours} hours. If you did not create an account, ignore this
-      message — nothing will happen.
+    <div style="margin:0 0 20px;font-size:32px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
+      ${escapeHtml(spaced)}
+    </div>
+    <p style="margin:0;font-size:12px;color:#666">
+      It expires in ${minutes} minutes. If you did not create an account, ignore this message —
+      nothing will happen.
     </p>
   </div>
 </body></html>`;
 
-  return { to, subject: "Confirm your email address", text, html };
+  return { to, subject: `${code} is your Aegis confirmation code`, text, html };
 }
 
-/** Escape text going into the HTML body. The link is ours, but it costs nothing to be sure. */
+/** Escape text going into the HTML body. The code is six digits, but it costs nothing. */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

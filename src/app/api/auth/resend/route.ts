@@ -20,11 +20,11 @@ export async function POST(request: Request) {
 
   const allowed = await canResend(user.id);
   if (!allowed.ok) {
-    return fail("rate_limited", `Wait ${allowed.wait} seconds before asking for another email.`);
+    return fail("rate_limited", `Wait ${allowed.wait} seconds before asking for another code.`);
   }
 
   try {
-    await sendVerification(user.id, user.email, request);
+    await sendVerification(user.id, user.email);
   } catch (e) {
     return fail(
       "server_error",
