@@ -23,6 +23,7 @@ export type DenyReason =
   | "device_revoked"
   | "device_limit"
   | "blocked"
+  | "email_unverified"
   | "over_quota";
 
 export type Decision =
@@ -86,6 +87,24 @@ export async function authorizeDevice(publicKey: string, now = new Date()): Prom
       allowed: false,
       reason: "unknown_device",
       message: "This device is not registered to an account.",
+    };
+  }
+
+  /*
+   * Enforced here, on the node's path, and not only in the UI.
+   *
+   * "You must verify your email" is worth nothing if the only thing checking is the client,
+   * because the client is untrusted and can simply not ask. This is the check that actually
+   * stops an unverified account from carrying traffic.
+   */
+  if (user.emailVerifiedAt === null) {
+    return {
+      allowed: false,
+      reason: "email_unverified",
+      message:
+        "Confirm your email address before connecting. Check your inbox for the link, or ask " +
+        "for a new one from the app.",
+      userId: user.id,
     };
   }
 

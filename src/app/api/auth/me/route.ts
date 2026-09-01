@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       deviceLimit: user.deviceLimit,
       blocked: user.blockedAt !== null,
       blockedReason: user.blockedReason,
+      emailVerified: user.emailVerifiedAt !== null,
     },
     usage,
     devices: enrolled,

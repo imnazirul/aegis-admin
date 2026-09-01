@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       // Told at sign-in, so the client can explain itself rather than just failing to connect.
       blocked: user.blockedAt !== null,
       blockedReason: user.blockedReason,
+      emailVerified: user.emailVerifiedAt !== null,
     },
   });
 }

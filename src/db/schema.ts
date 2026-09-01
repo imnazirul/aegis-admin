@@ -141,6 +141,34 @@ export const userSessions = pgTable(
   ],
 );
 
+/**
+ * A pending email verification.
+ *
+ * A separate table rather than a column on `users`, so a link can be reissued without
+ * invalidating the account, and so an expired attempt leaves a row worth looking at rather than
+ * silently vanishing. Only the hash is stored — the token in the link is the secret, and a
+ * database dump must not hand anyone the ability to verify other people's addresses.
+ */
+export const emailVerifications = pgTable(
+  "email_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    /** The address it was sent to, so changing an email invalidates a link in flight. */
+    email: text("email").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: stamp("created_at"),
+  },
+  (t) => [
+    uniqueIndex("email_verifications_token_hash_key").on(t.tokenHash),
+    index("email_verifications_user_id_idx").on(t.userId),
+  ],
+);
+
 export const admins = pgTable(
   "admins",
   {

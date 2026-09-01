@@ -20,6 +20,7 @@ export type UserRow = {
   dailyLimitBytes: number | null;
   weeklyLimitBytes: number | null;
   monthlyLimitBytes: number | null;
+  emailVerifiedAt: Date | null;
   blockedAt: Date | null;
   blockedReason: string | null;
   createdAt: Date;
@@ -74,6 +75,7 @@ export async function listUsers({ query = "", status = "all", page = 0 }: ListOp
         dailyLimitBytes: users.dailyLimitBytes,
         weeklyLimitBytes: users.weeklyLimitBytes,
         monthlyLimitBytes: users.monthlyLimitBytes,
+        emailVerifiedAt: users.emailVerifiedAt,
         blockedAt: users.blockedAt,
         blockedReason: users.blockedReason,
         createdAt: users.createdAt,

@@ -15,6 +15,13 @@
       "when": 1788234354307,
       "tag": "0001_complex_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788240736566,
+      "tag": "0002_redundant_chat",
+      "breakpoints": true
     }
   ]
 }

@@ -89,6 +89,13 @@ export default async function UsersPage({
                           blocked
                         </span>
                       )}
+                      {/* An unverified account cannot connect at all, so it is worth seeing at
+                          a glance — it is the most likely reason for "it does not work". */}
+                      {u.emailVerifiedAt === null && (
+                        <span className="rounded border border-muted/40 px-1.5 py-0.5 text-xs text-muted">
+                          unverified
+                        </span>
+                      )}
                     </Link>
                   </td>
                   <td className="tnum px-4 py-2 text-muted">{bytes(u.todayBytes)}</td>
