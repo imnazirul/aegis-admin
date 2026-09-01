@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "nodes_token_hash_key" ON "nodes" USING btree ("token_hash");
